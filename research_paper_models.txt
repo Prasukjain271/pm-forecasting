@@ -1,0 +1,20 @@
+Pick these two
+
+Model A: Multi-scale attention TCN (the paper's Algorithm 1)
+
+It runs three parallel dilated causal conv branches with kernel sizes 3, 5 and 7 (output channels 32, 64 and 128).
+Global average pooling gives a descriptor per branch, and a linear layer plus softmax gives attention weights over the branches.
+The branch outputs are summed using those weights.
+A stack of causal conv layers with dilations 1, 2, 4, 8, ... follows, each with BatchNorm, ReLU, dropout and a 1×1 skip connection. All skip outputs are summed.
+Your current TCN gains parallel branches and a small attention step.
+
+Model B: BiLSTM with multi-head attention and gating (the paper's Algorithm 2)
+
+It uses a 2-layer bidirectional LSTM with 64 hidden units per direction.
+Multi-head self-attention runs over the BiLSTM outputs, with Q = K = V.
+A gate G = sigmoid(Linear([H; A])) then mixes them as G·H + (1−G)·A.
+It's your LSTM with a few extra layers.
+
+Both can end in your existing two-output head (PM10 and PM2.5). That also fits your cross-pollutant goal, because joint prediction is how this paper exploits the PM2.5/PM10 relationship.
+
+Stretch goal
