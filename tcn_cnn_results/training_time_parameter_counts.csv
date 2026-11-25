@@ -1,0 +1,4 @@
+model,trainable_parameters,training_time_seconds
+TCN,115778,6223.02832365036
+1D-CNN,20194,3578.31316280365
+LSTM (reference),53378,
