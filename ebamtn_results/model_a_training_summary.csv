@@ -1,0 +1,4 @@
+model,horizon,best_epoch,epochs_run,best_validation_loss,training_time_seconds,trainable_parameters
+Model A — Multi-scale attention TCN,1,24,32,0.05498464540998539,59797.4661397,118661
+Model A — Multi-scale attention TCN,6,2,10,0.09140085848282063,3094.3416429999925,118661
+Model A — Multi-scale attention TCN,24,4,12,0.13406932099402794,40312.670977600006,118661

@@ -1,0 +1,2 @@
+model,horizon,best_epoch,epochs_run,best_validation_loss,training_time_seconds,trainable_parameters
+Model B - BiLSTM with attention and gating,24,6,14,0.15276353382336577,4145.67893439997,250754

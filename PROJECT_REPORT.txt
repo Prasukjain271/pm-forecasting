@@ -1,0 +1,459 @@
+PROJECT REPORT
+FORECASTING PM10 AND PM2.5 WITH DEEP LEARNING
+
+1. TITLE AND GOAL
+
+Forecasting PM10 and PM2.5 with deep learning, plus the PM2.5/PM10
+cross-pollutant relationship.
+
+The experiments compare a persistence baseline with five pooled deep-learning
+models: LSTM, TCN, 1D-CNN, Model A (multi-scale attention TCN), and Model B
+(BiLSTM with attention and gating). Every learned model predicts PM10 and
+PM2.5 jointly. The goal is to compare saved test metrics under shared data
+preparation, not to claim that correlation is causal.
+
+PROJECT WORKFLOW AND ACHIEVEMENTS
+
+- EDA.ipynb explored and cleaned the multi-station hourly data. 02_LSTM.ipynb
+  trained the LSTM and generated persistence results. 03_TCN_CNN_Comparison.ipynb
+  trained and compared the TCN and 1D-CNN with the LSTM and persistence.
+- 04_EBAMTN_Components.ipynb implemented and trained Model A. It includes
+  reusable, resumable training/evaluation code and Model A result files.
+- 05_ModelB_BiLSTM_Attention.ipynb implemented Model B using the shared Model A
+  data and training helpers. Model B completed all three forecast horizons;
+  weights, metrics, predictions, training summaries, and loss plots were saved.
+- The Model B comparison cell initially stopped on a misspelled index argument
+  (Falssae). That typo was corrected to False and the comparison cell was run
+  again. The corrected run produced the combined comparison CSV, RMSE
+  improvement CSV, charts, and training/parameter table; it did not retrain
+  Model B.
+- The work implements two components inspired by EBAMTN, not the paper's full
+  model. Saved evaluations include pooled test comparisons and per-station
+  metrics.
+
+2. DATASET AND PREPROCESSING
+
+SOURCE AND COVERAGE
+
+- The project README attributes the dataset to Vrbancic, Mendeley Data,
+  DOI 10.17632/p86hnykz3d.2. The README does not spell out a version label.
+- The EDA notebook reports 21 stations, 14,100 hourly rows per station, and
+  296,100 rows total, spanning 2024-05-02 20:00 through 2025-12-11 07:00.
+- The cleaned CSV was found at
+  C:\Users\jains\Downloads\Air quality dataset\cleaned\air_quality_all_stations_cleaned.csv.
+  It is outside the project folder; the report reads it without modifying it.
+- The raw fields are datetime, station, PM10, PM2.5, temperature, rain,
+  pressure, precipitation, wind_speed, clouds, and wind_direction. The cleaned
+  file also contains clouds_ordinal, wind-direction helper fields, time fields
+  and cyclic encodings, and PM10_interpolated / PM2.5_interpolated flags.
+
+QUALITY CHECKS AND CLEANING
+
+- The saved EDA output found zero duplicate station/timestamp rows and zero
+  missing hourly timestamps within station coverage.
+- Physical range checks found zero invalid values across the checked numeric
+  fields.
+- Clouds were mapped to ordinal categories: clear=0, partly cloudy=1,
+  mostly cloudy=2, cloudy=3.
+- Time-derived columns include hour, day_of_week, month, day_of_year,
+  hour_sin, hour_cos, day_of_year_sin, and day_of_year_cos.
+- Interior PM gaps of up to three consecutive hourly values were interpolated.
+  The EDA output records 758 PM10 values and 735 PM2.5 values interpolated;
+  their flags are stored in the cleaned CSV. Longer and boundary gaps remain.
+- In the raw-data missingness table, wind_direction has 145,598 missing
+  values (49.171901%). wind_speed has 4,551 missing values (1.536981%).
+  Direction fields were excluded from model features; wind_speed was retained.
+- Raw PM10 and PM2.5 missingness was 4,902 (1.655522%) and 4,879 (1.647754%),
+  respectively. These are pre-interpolation EDA counts.
+
+EDA FINDINGS
+
+- The cleaned-data summary reports mean PM10 of 18.865539 and mean PM2.5 of
+  13.211259, each based on 291,956 non-missing values.
+- Pairwise-complete Pearson correlation between PM2.5 and PM10 is 0.911,
+  based on 291,956 paired observations. This is descriptive, not causal.
+- The station table reports mean PM2.5 from 7.396 at E420 to 16.522 at E803.
+  Mean PM10 ranges from 12.305 at E420 to 21.727 at E803.
+- The grouped EDA output reports the highest hour-of-day group mean at hour 21
+  for PM10 and hour 22 for PM2.5. The highest weekday group is index 2
+  (Wednesday with Monday indexed 0); the highest monthly group is month 2
+  (February) for both pollutants.
+- The EDA plots show temporal variability, station-level differences, and
+  remaining missing values. EDA plots are embedded in EDA.ipynb; standalone
+  EDA image files were not found.
+
+3. EXPERIMENTAL SETUP
+
+SHARED DATA AND WINDOWS
+
+- Chronological train split: 2024-05-02 20:00 through 2025-06-18 01:00.
+- Chronological validation split: 2025-06-18 02:00 through 2025-09-14 04:00.
+- Chronological test split: 2025-09-14 05:00 through 2025-12-11 07:00.
+- The 12 model input features are PM10, PM2.5, temperature, rain, pressure,
+  precipitation, wind_speed, clouds_ordinal, hour_sin, hour_cos,
+  day_of_year_sin, and day_of_year_cos. No wind-direction column is included.
+- Feature and target StandardScalers are fitted separately per station using
+  training data only. Missing input features are filled with station training
+  medians. Windows are built separately within each split to avoid crossing
+  split boundaries.
+- All models predict PM10 and PM2.5 jointly at t+HORIZON, using all stations
+  pooled for training. The seed is 42. Saved notebook outputs report CPU use.
+- LOOKBACK=48 hours; HORIZONS=1, 6, and 24 hours. Window counts are:
+
+  HORIZON   TRAIN WINDOWS   VALIDATION WINDOWS   TEST WINDOWS
+  --------   -------------   ------------------   ------------
+  1              203,749              42,142           43,041
+  6              203,644              42,037           42,936
+  24             203,266              41,659           42,558
+
+TRAINING AND EVALUATION
+
+- The LSTM, TCN, and 1D-CNN notebooks use Adam, learning rate 1e-3, MSE loss,
+  batch size 256, epoch limit 50, dropout 0.2, ReduceLROnPlateau with factor
+  0.5 and scheduler patience 3, and early-stopping patience 8.
+- Model A and Model B retain the shared data splits, lookback, horizons,
+  batch size, epoch limit, learning rate, and seed. They use dropout 0.1,
+  weight decay 1e-4, gradient clipping at 1.0, MSE, and the same scheduler
+  and early-stop patience settings.
+- Metrics are MAE, RMSE, and R2 in original concentration scale, both pooled
+  and per station. Persistence means carrying the last observed value of each
+  pollutant forward unchanged to the forecast target time.
+
+4. BASELINE AND THE THREE STANDARD MODELS
+
+PERSISTENCE
+
+Persistence is a non-trained baseline: the latest observed PM10 and PM2.5
+values are used as their forecasts. It has no learned parameters, training
+time, or best epoch. Its metrics are included in the LSTM metrics file and
+comparison charts.
+
+LSTM
+
+The pooled LSTM consumes the shared feature sequence and uses the final LSTM
+time-step output in a two-output linear head. The notebook configures hidden
+size 64, two LSTM layers, and dropout 0.2.
+
+TCN
+
+The pooled TCN uses five residual blocks with 64 channels, kernel size 3,
+dilations 1, 2, 4, 8, and 16, two causal convolution layers per block,
+BatchNorm, ReLU, dropout, and residual projections where needed. It reads the
+last sequence output through a two-output linear head.
+
+1D-CNN
+
+The 1D-CNN uses three kernel-size-3 Conv1d layers with channels 32, 64, and
+64. Each layer has BatchNorm, ReLU, and dropout; global average pooling feeds
+the two-output linear head.
+
+RECORDED MODEL COST AND TRAINING EPOCHS
+
+Model      Parameters   Recorded training time           H=1 best/run   H=6 best/run   H=24 best/run
+---------  -----------  --------------------------------  -------------  -------------  --------------
+Persistence none         no training                       NOT APPLICABLE  NOT APPLICABLE  NOT APPLICABLE
+LSTM          53,378     NOT AVAILABLE / NOT RECORDED      16/24          7/15           2/10
+TCN          115,778     6,223.0 s, model total            13/21          4/12           10/18
+1D-CNN        20,194     3,578.3 s, model total            13/21          14/22          8/16
+
+The TCN and 1D-CNN times are totals recorded in
+training_time_parameter_counts.csv, not per-horizon times. Notebook 03 says
+the recorded time covers the current execution/resume only; earlier interrupted
+time was not recorded. The TCN H=6 run was warm-started from a legacy best
+checkpoint, with Adam reinitialized; its log notes this was not an exact
+optimizer-state resume. LSTM training time is blank in the saved time table.
+Exact figure filenames are listed in Section 6.
+
+5. THE TWO RESEARCH-PAPER MODELS
+
+The project notebooks and research notes refer to Xie et al. (2025) and
+EBAMTN Algorithms 1 and 2. This work is component-level, not a reproduction
+of the full EBAMTN. Both components have saved code, weights, metrics, and
+figures.
+
+MODEL A: MULTI-SCALE ATTENTION TCN
+
+Three parallel causal Conv1d branches use kernel sizes 3, 5, and 7, with
+32, 64, and 128 output channels. BatchNorm, ReLU, and dropout follow each
+convolution. Each branch is projected to 64 fused channels; branch-specific
+linear scores from global-average-pooled descriptors are softmaxed and used
+to weight the summed branch outputs.
+
+The dilated stack uses 64 channels, kernel size 3, BatchNorm, ReLU, dropout,
+and 1x1 skip projections. The saved implementation uses dilations 1, 2, 4,
+8, and 16; the notebook reports a receptive field of 69, covering the
+48-step lookback. The last stack time step feeds a 64-unit head and a
+two-output linear layer.
+
+Model A has 118,661 trainable parameters. Its saved CPU run summary reports:
+
+HORIZON   BEST EPOCH / EPOCHS RUN   TRAINING TIME
+--------  -----------------------  -------------
+1         24 / 32                  59,797.5 s
+6          2 / 10                   3,094.3 s
+24         4 / 12                  40,312.7 s
+
+The saved figures are model_a_horizon_1_loss.png,
+model_a_horizon_6_loss.png, and model_a_horizon_24_loss.png.
+
+MODEL B: BILSTM WITH MULTI-HEAD ATTENTION AND GATING
+
+Model B uses a two-layer bidirectional LSTM with 64 hidden units per
+direction, four-head self-attention with Q=K=V, and a sigmoid gate that mixes
+the BiLSTM and attention outputs. The block projects to 64 features; the last
+time step feeds a 64-unit head and two outputs. The bidirectional encoder
+processes only the observed input window. Model B has 250,754 trainable
+parameters.
+
+HORIZON   BEST EPOCH / EPOCHS RUN   TRAINING TIME
+--------  -----------------------  -------------
+1         26 / 34                  10,077.2 s
+6          6 / 14                   4,107.1 s
+24         6 / 14                   4,145.7 s
+
+The Model B results include model_b_horizon_{1,6,24}_best.pt,
+model_b_horizon_{1,6,24}_metrics.csv,
+model_b_horizon_{1,6,24}_test_predictions.csv,
+model_b_horizon_{1,6,24}_training.csv, and
+model_b_horizon_{1,6,24}_loss.png, plus model_b_training_summary.csv.
+
+PAPER COMPARABILITY
+
+The project brief identifies the source as Xie, Chow, Chuah and Raymond
+(2025), "Multi-pollutant air quality forecasting using bidirectional attention
+and multi-scale temporal networks", Frontiers in Environmental Science
+13:1623630, DOI 10.3389/fenvs.2025.1623630. The brief describes the paper's
+results as R2 above 0.94 for one-step forecasts using one site per city,
+168-hour inputs of PM2.5 and PM10 only, and rows with missing values removed.
+Those paper details were supplied in the project brief and were not
+independently verified from a local paper copy. They are NOT directly
+comparable with this project: this project uses 48-hour inputs, 21 pooled
+stations, additional weather/time features, joint train-only scaling, and
+different chronological evaluation windows.
+
+6. RESULTS
+
+An asterisk marks the lowest MAE/RMSE or highest R2 in that target-and-horizon
+row. Values are pooled test metrics rounded to three decimals. The source
+files are lstm_results/lstm_all_horizons_metrics.csv,
+tcn_cnn_results/tcn_all_horizons_metrics.csv,
+tcn_cnn_results/1d_cnn_all_horizons_metrics.csv, and the three
+ebamtn_results/model_a_horizon_*_metrics.csv and
+ebamtn_results/model_b_horizon_*_metrics.csv files. The combined saved table
+is ebamtn_results/model_a_b_comparison_table.csv. The comparison also saved
+model_b_rmse_improvement_vs_persistence.csv and
+model_b_training_time_parameter_counts.csv in ebamtn_results/.
+
+PM10
+
+H   METRIC  PERSISTENCE   LSTM          TCN           1D-CNN        MODEL A       MODEL B
+--  ------  ------------  ------------  ------------  ------------  ------------  -----------------------
+1   MAE          2.884         2.758         2.763         3.448        2.731*        2.742
+1   RMSE         5.398         4.892         4.886         5.238        4.832*        4.847
+1   R2           0.801         0.837         0.837         0.813        0.841*        0.840
+6   MAE          7.313         6.154        5.555*         7.573        5.570         6.126
+6   RMSE        11.435         9.003        8.124*        10.161        8.155         8.895
+6   R2           0.105         0.447        0.550*         0.296        0.546         0.460
+24  MAE         7.257*         7.676         7.592        10.319        7.585         7.756
+24  RMSE        10.865        10.511        10.941        13.225       10.292*       10.734
+24  R2           0.191         0.249         0.186        -0.189        0.280*        0.217
+
+PM2.5
+
+H   METRIC  PERSISTENCE   LSTM          TCN           1D-CNN        MODEL A       MODEL B
+--  ------  ------------  ------------  ------------  ------------  ------------  -----------------------
+1   MAE          2.056        1.975         2.002         2.408        1.978         1.965*
+1   RMSE         4.037         3.676         3.699         3.881        3.645*        3.659
+1   R2           0.857         0.882         0.880         0.868        0.884*        0.883
+6   MAE          5.627         4.580         4.202         5.758        4.150*        4.497
+6   RMSE         9.369         7.180         6.439         8.091        6.437*        6.853
+6   R2           0.230         0.550         0.638         0.428        0.638*        0.590
+24  MAE         5.545*         5.728         5.938         8.139        5.940         6.059
+24  RMSE         8.706        8.440*         9.065        10.911        8.498         8.814
+24  R2           0.334         0.380*         0.285        -0.036        0.371         0.324
+
+PERCENT RMSE REDUCTION VS PERSISTENCE
+
+Positive values mean lower RMSE than persistence; negative values mean higher
+RMSE. Percentages are calculated from the saved pooled RMSE values.
+
+PM10
+H   LSTM     TCN      1D-CNN   MODEL A   MODEL B
+--  -------  -------  -------  --------  -------
+1      9.4%     9.5%     3.0%     10.5%    10.2%
+6     21.3%    29.0%    11.1%     28.7%    22.2%
+24     3.3%    -0.7%   -21.7%      5.3%     1.2%
+
+PM2.5
+H   LSTM     TCN      1D-CNN   MODEL A   MODEL B
+--  -------  -------  -------  --------  -------
+1      8.9%     8.4%     3.9%      9.7%     9.4%
+6     23.4%    31.3%    13.6%     31.3%    26.9%
+24     3.1%    -4.1%   -25.3%      2.4%    -1.2%
+
+TRAINING TIME, PARAMETERS, AND BEST EPOCH
+
+Model       Parameters   Logged training time                         H=1 best/run   H=6 best/run   H=24 best/run
+----------  -----------  --------------------------------------------  -------------  -------------  --------------
+Persistence none         no training                                  NOT APPLICABLE NOT APPLICABLE NOT APPLICABLE
+LSTM           53,378    NOT AVAILABLE / NOT RECORDED                 16/24          7/15           2/10
+TCN           115,778    6,223.0 s total; prior time unrecorded         13/21          4/12           10/18
+1D-CNN         20,194    3,578.3 s total; prior time unrecorded         13/21          14/22          8/16
+Model A       118,661    H1 59,797.5 s; H6 3,094.3 s; H24 40,312.7 s   24/32           2/10           4/12
+Model B       250,754    H1 10,077.2 s; H6 4,107.1 s; H24 4,145.7 s   26/34           6/14           6/14
+
+PER-STATION PM2.5 AT H=6
+
+The following are lowest and highest per-station RMSE values in each saved
+per-station metrics file.
+
+Model        Best station / RMSE     Worst station / RMSE
+-----------  ----------------------  -----------------------
+Persistence  E420 / 2.403            E802 / 20.431
+LSTM         E420 / 2.869            E802 / 13.310
+TCN          E420 / 2.875            E802 / 10.957
+1D-CNN       E420 / 3.437            E802 / 14.043
+Model A      E420 / 2.722            E802 / 11.261
+Model B      E420 / 2.881            E802 / 11.858
+
+FIGURES
+
+LSTM figures:
+- lstm_horizon_1_loss.png, lstm_horizon_6_loss.png,
+  lstm_horizon_24_loss.png - training and validation loss by horizon.
+- lstm_horizon_1_scatter.png, lstm_horizon_6_scatter.png,
+  lstm_horizon_24_scatter.png - actual versus predicted scatter plots.
+- lstm_horizon_1_one_week.png, lstm_horizon_6_one_week.png,
+  lstm_horizon_24_one_week.png - one-week forecast examples by horizon.
+
+TCN and 1D-CNN figures:
+- tcn_horizon_1_loss.png, tcn_horizon_6_loss.png,
+  tcn_horizon_24_loss.png - TCN loss curves.
+- 1d_cnn_horizon_1_loss.png, 1d_cnn_horizon_6_loss.png,
+  1d_cnn_horizon_24_loss.png - 1D-CNN loss curves.
+- comparison_rmse_bars.png - pooled RMSE comparison by target and horizon.
+- comparison_r2_bars.png - pooled R2 comparison by target and horizon.
+- h6_one_week_actual_vs_predicted.png - H=6 one-week actual/predicted
+  comparison.
+- pm25_h6_per_station_rmse_heatmap.png - station RMSE comparison for PM2.5
+  at H=6; this comparison includes LSTM, TCN, and 1D-CNN.
+
+Model A figures:
+- model_a_horizon_1_loss.png, model_a_horizon_6_loss.png,
+  model_a_horizon_24_loss.png - Model A training and validation loss curves.
+
+Model B figures:
+- model_b_horizon_1_loss.png, model_b_horizon_6_loss.png,
+  model_b_horizon_24_loss.png - Model B training and validation loss curves.
+- model_a_b_rmse_by_horizon.png and model_a_b_r2_by_horizon.png - pooled
+  RMSE and R2 comparisons across available models and forecast horizons.
+
+The EDA figures are embedded in EDA.ipynb; no separate EDA figure filenames
+were saved. Model B one-week prediction plots and attention visualizations
+were not produced.
+
+7. COMPARISON AND DISCUSSION
+
+- By pooled test RMSE, Model A is best for PM10 at H=1 and H=24, while TCN
+  is best at H=6. Their reductions versus persistence are 10.5%, 5.3%, and
+  29.0% at H=1, H=24, and H=6 respectively. Persistence still has the
+  lowest PM10 MAE at H=24.
+- For PM2.5, Model A is best by RMSE at H=1 and H=6; at H=6 its RMSE is
+  6.437 versus 6.439 for TCN, a very small difference. LSTM is best by RMSE
+  at H=24. The reductions versus persistence are 9.7%, 31.3%, and 3.1%.
+  Persistence has the lowest PM2.5 MAE at H=24.
+- Model B wins PM2.5 MAE at H=1 (1.965 versus 1.975 for LSTM), but Model A
+  has lower PM2.5 RMSE and higher R2 at that horizon. Model B does not have
+  the best pooled RMSE at any target/horizon. Relative to persistence, Model
+  B's RMSE improvement ranges from 1.2% to 22.2% for PM10, and from -1.2%
+  to 26.9% for PM2.5; its PM2.5 H=24 RMSE is worse than persistence.
+- Model A versus the plain TCN is mixed. Model A has slightly lower RMSE for
+  both targets at H=1, PM10 is slightly worse at H=6, PM2.5 is nearly tied
+  at H=6, and Model A is lower for both at H=24. Model A has 118,661
+  parameters versus 115,778 for TCN; Model B has 250,754. The measured
+  performance does not show a consistent accuracy gain from the larger
+  attention-gated BiLSTM.
+- H=6 provides the clearest improvements over persistence. At H=24, some
+  methods are close to or worse than persistence, and persistence has the
+  lowest MAE for both pollutants. Accuracy does not improve monotonically
+  with model complexity.
+- Model A's best epochs were early at H=6 and H=24; Model B's best epochs
+  were 6 of 14 at H=6 and H=24, but 26 of 34 at H=1. These indicate early
+  stopping for some runs, not by themselves overfitting. Loss plots are
+  available, but a consistent numeric train/validation-gap table was not
+  saved for every model, so overfitting conclusions are limited.
+- TCN and 1D-CNN training times are model-total execution/resume figures;
+  previously interrupted time was not recorded. Model A/B timings are
+  per-horizon logs. These different recording scopes do not support a clean
+  speed ranking. LSTM training time is NOT AVAILABLE / NOT RECORDED.
+- The Model B comparison-cell typo caused a NameError before the comparison
+  CSV write. After changing the argument to False, the comparison cell
+  completed and saved its outputs. The training artifacts were already on
+  disk and did not need to be recreated.
+- EDA shows a PM2.5-PM10 correlation of 0.911, and the models use both
+  pollutants as inputs and jointly predict both. No PM10-as-input ablation
+  isolates the value of cross-pollutant information.
+- Wind direction was not included, only seed 42 is saved, and no
+  hyperparameter-tuning sweep is present. These limit generalization and
+  attribution claims.
+
+8. CONCLUSION
+
+By pooled test RMSE, Model A is best for PM10 at H=1 and H=24, and TCN is
+best at H=6; for PM2.5, Model A is best at H=1 and nearly tied with TCN at
+H=6, while LSTM is best at H=24. Model B has the lowest PM2.5 MAE at H=1,
+but does not win on pooled RMSE. H=6 gives the strongest RMSE reductions
+over persistence, while persistence has the lowest MAE for both pollutants
+at H=24. Model A improves on plain TCN in some settings but not all, and the
+larger Model B does not consistently improve accuracy. The evaluation covers
+about 19 months of hourly data, with a September-to-December test period,
+one seed, no tuning sweep, train-only station scaling, short-gap
+interpolation, and no wind-direction feature. Because both pollutants are
+inputs and outputs, these results do not isolate the causal value of
+cross-pollutant information or establish broad generalization.
+
+9. FUTURE WORK
+
+- Compare against XLinear or implement and evaluate the full EBAMTN.
+- Run wind-direction and PM10-as-input ablations.
+- Repeat experiments with multiple seeds and report variability.
+- Perform controlled hyperparameter tuning.
+- Add a seasonal-naive baseline.
+- Compare pooled models with per-station models.
+
+10. REFERENCES
+
+- Vrbancic, G. Air quality dataset. Mendeley Data, V2, DOI:
+  10.17632/p86hnykz3d.2. The README records the attribution and DOI; V2 is
+  specified in the project brief.
+- Xie, Chow, Chuah and Raymond (2025), "Multi-pollutant air quality
+  forecasting using bidirectional attention and multi-scale temporal
+  networks", Frontiers in Environmental Science 13:1623630, DOI
+  10.3389/fenvs.2025.1623630. Citation details were supplied in the project
+  brief; a local paper copy was not found for independent verification.
+- Project method and result records: EDA.ipynb, 02_LSTM.ipynb,
+  03_TCN_CNN_Comparison.ipynb, 04_EBAMTN_Components.ipynb,
+  05_ModelB_BiLSTM_Attention.ipynb, README.md, research_paper_models.txt,
+  and the saved CSV and PNG files listed in this report.
+
+11. DATA GAPS
+
+- LSTM training time: blank in training_time_parameter_counts.csv.
+  Status: NOT AVAILABLE / NOT RECORDED.
+- Per-horizon TCN and 1D-CNN runtimes: only a model-total runtime is saved;
+  horizon-specific runtimes are NOT AVAILABLE / NOT RECORDED.
+- A numeric LSTM train/validation loss-gap summary is NOT AVAILABLE /
+  NOT RECORDED; only its loss-curve figures are saved.
+- The paper PDF/full text and exact experimental protocol are not in the local
+  project folder. Paper details stated in this report came from the project
+  brief and are not independently verified against the publication.
+- EDA plot outputs exist inside EDA.ipynb, but standalone EDA figure files
+  were NOT AVAILABLE.
+- The cleaned CSV is available at the external Downloads path noted above,
+  not inside the project folder. The local README does not state its version.
+- Model B one-week predicted-versus-actual plots and attention visualizations
+  were not produced; its saved figures are loss curves and pooled comparison
+  charts.
+- No multiple-seed study, hyperparameter sweep, wind-direction ablation,
+  PM10-input ablation, full EBAMTN reproduction, seasonal-naive baseline, or
+  per-station model comparison was completed.
